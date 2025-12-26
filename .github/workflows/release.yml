@@ -21,8 +21,13 @@ jobs:
             artifact_name: minesweep.exe
             asset_name: minesweep-windows-x86_64.exe
           - os: macos-latest
+            args: "--target x86_64-apple-darwin"
             artifact_name: minesweep
-            asset_name: minesweep-macos
+            asset_name: minesweep-macos-x86_64
+          - os: macos-latest
+            args: "--target aarch64-apple-darwin"
+            artifact_name: minesweep
+            asset_name: minesweep-macos-aarch64
             # Note: macos-latest architecture depends on GitHub Actions current default (usually x64 or arm64).
             # We build for the host architecture here.
 
@@ -34,7 +39,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev pkg-config libssl-dev clang cmake libfontconfig1-dev
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev pkg-config libssl-dev clang cmake libfontconfig1-dev libxcb1-dev libxkbcommon-x11-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -52,7 +57,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build Release
-        run: cargo build --release --verbose
+        run: cargo build --release
 
       - name: Prepare Artifact (Unix)
         if: runner.os != 'Windows'
