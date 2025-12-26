@@ -1,0 +1,71 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: minesweep
+            asset_name: minesweep-linux-x86_64
+          - os: windows-latest
+            artifact_name: minesweep.exe
+            asset_name: minesweep-windows-x86_64.exe
+          - os: macos-latest
+            artifact_name: minesweep
+            asset_name: minesweep-macos
+            # Note: macos-latest architecture depends on GitHub Actions current default (usually x64 or arm64).
+            # We build for the host architecture here.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev pkg-config libssl-dev clang cmake libfontconfig1-dev
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build Release
+        run: cargo build --release --verbose
+
+      - name: Prepare Artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mv target/release/${{ matrix.artifact_name }} target/release/${{ matrix.asset_name }}
+
+      - name: Prepare Artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mv target/release/${{ matrix.artifact_name }} target/release/${{ matrix.asset_name }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: target/release/${{ matrix.asset_name }}
