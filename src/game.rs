@@ -221,13 +221,13 @@ impl Minesweeper {
         }
     }
 
-    pub fn chord(&mut self, row: u32, col: u32) {
+    pub fn chord(&mut self, row: u32, col: u32) -> bool {
         if self.status != GameStatus::Playing {
-            return;
+            return false;
         }
         let idx = self.index(row, col);
         if self.cells[idx].state != CellState::Revealed {
-            return;
+            return false;
         }
 
         if let CellContent::Number(n) = self.cells[idx].content {
@@ -245,8 +245,10 @@ impl Minesweeper {
                         self.reveal(nr, nc);
                     }
                 }
+                return true;
             }
         }
+        false
     }
 
     fn reveal_all_mines(&mut self) {

@@ -14,6 +14,9 @@ struct MinesweeperView {
     difficulty: Difficulty,
     timer_handle: Option<Task<()>>,
     chord_target: Option<(u32, u32)>, // Track which cell is being chorded (pressed)
+    flashing_cells: Vec<(u32, u32)>,  // For visual feedback on failed chords
+    left_mouse_down: bool,
+    right_mouse_down: bool,
 }
 
 impl MinesweeperView {
@@ -24,6 +27,9 @@ impl MinesweeperView {
             difficulty,
             timer_handle: None,
             chord_target: None,
+            flashing_cells: Vec::new(),
+            left_mouse_down: false,
+            right_mouse_down: false,
         };
         view.start_timer(cx);
         view
@@ -82,8 +88,39 @@ impl MinesweeperView {
 
     fn handle_chord_end(&mut self, row: u32, col: u32, cx: &mut Context<Self>) {
         if self.chord_target == Some((row, col)) {
-            self.game.chord(row, col);
+            let success = self.game.chord(row, col);
             self.chord_target = None;
+
+            if !success {
+                // Flash neighbors
+                let neighbors = self.game.neighbors(row, col);
+                self.flashing_cells = neighbors
+                    .into_iter()
+                    .filter(|&(nr, nc)| {
+                        let state = self.game.cells[self.game.index(nr, nc)].state;
+                        state == CellState::Hidden || state == CellState::QuestionMark
+                    })
+                    .collect();
+
+                cx.spawn(|view: WeakEntity<MinesweeperView>, cx: &mut AsyncApp| {
+                    let mut cx = cx.clone();
+                    async move {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(150))
+                            .await;
+                        view.update(
+                            &mut cx,
+                            |view: &mut MinesweeperView, cx: &mut Context<MinesweeperView>| {
+                                view.flashing_cells.clear();
+                                cx.notify();
+                            },
+                        )
+                        .ok();
+                    }
+                })
+                .detach();
+            }
+
             cx.notify();
         }
     }
@@ -327,9 +364,15 @@ impl MinesweeperView {
             let is_neighbor =
                 (row as i32 - t_row as i32).abs() <= 1 && (col as i32 - t_col as i32).abs() <= 1;
 
-            if is_neighbor && cell.state == CellState::Hidden {
+            if is_neighbor
+                && (cell.state == CellState::Hidden || cell.state == CellState::QuestionMark)
+            {
                 visually_pressed = true;
             }
+        }
+
+        if self.flashing_cells.contains(&(row, col)) {
+            visually_pressed = true;
         }
 
         if visually_pressed {
@@ -416,29 +459,35 @@ impl MinesweeperView {
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |view, event: &MouseDownEvent, _window, cx| {
+                                view.left_mouse_down = true;
                                 if event.click_count == 2 {
+                                    view.handle_chord_start(row, col, cx);
+                                } else if view.right_mouse_down {
                                     view.handle_chord_start(row, col, cx);
                                 }
                             }),
                         )
-                        // Add mouse up for double click chording is tricky because double click is a sequence.
-                        // However, usually chording via double click executes immediately.
-                        // The user asked for "hold double click" or "press and hold".
-                        // "双击按住鼠标" -> Double click and hold.
-                        // GPUI might not expose "Double Click Down" vs "Double Click Up" easily in one event.
-                        // But we can simulate "Start Chord" on double click, and "End Chord" on release.
-                        // For simplicity, let's just make double-click trigger the action immediately as before for now,
-                        // BUT if we want the visual effect, we need to know when the mouse is released after the double click.
-                        // Let's rely on the Middle Click for the "hold to see" behavior primarily,
-                        // and for double click, we might just trigger it.
-                        // WAIT: The user said "双击按住鼠标...松手恢复". So double click AND HOLD.
-                        // This implies the second click of the double click is a MouseDown, and we wait for MouseUp.
-                        // So:
-                        // 1. MouseDown (count=2) -> Start Chord Highlight
-                        // 2. MouseUp -> Execute Chord
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |view, _, _window, cx| {
+                                view.right_mouse_down = true;
+                                if view.left_mouse_down {
+                                    view.handle_chord_start(row, col, cx);
+                                }
+                            }),
+                        )
                         .on_mouse_up(
                             MouseButton::Left,
                             cx.listener(move |view, _, _window, cx| {
+                                view.left_mouse_down = false;
+                                // If we were chording, finish it.
+                                view.handle_chord_end(row, col, cx);
+                            }),
+                        )
+                        .on_mouse_up(
+                            MouseButton::Right,
+                            cx.listener(move |view, _, _window, cx| {
+                                view.right_mouse_down = false;
                                 // If we were chording, finish it.
                                 view.handle_chord_end(row, col, cx);
                             }),
